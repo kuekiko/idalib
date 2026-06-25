@@ -742,6 +742,7 @@ mod ffix {
         include!("segm_extras.h");
         include!("search_extras.h");
         include!("strings_extras.h");
+        include!("typeinf_extras.h");
 
         type c_short = autocxx::c_short;
         type c_int = autocxx::c_int;
@@ -1088,6 +1089,15 @@ mod ffix {
             minor: *mut c_int,
             build: *mut c_int,
         ) -> bool;
+
+        unsafe fn idalib_declare_type(decl: *const c_char, relaxed: bool, replace: bool) -> bool;
+        unsafe fn idalib_apply_decl_type(
+            ea: c_ulonglong,
+            decl: *const c_char,
+            relaxed: bool,
+            delay: bool,
+            strict: bool,
+        ) -> bool;
     }
 }
 
@@ -1303,6 +1313,10 @@ pub mod name {
         is_weak_name,
     };
     pub use super::ffix::idalib_set_name;
+}
+
+pub mod typeinf {
+    pub use super::ffix::{idalib_apply_decl_type, idalib_declare_type};
 }
 
 pub mod ida {

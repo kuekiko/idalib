@@ -20,6 +20,7 @@ use crate::ffi::name::idalib_set_name;
 use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
+use crate::ffi::typeinf::{idalib_apply_decl_type, idalib_declare_type};
 use crate::ffi::util::{is_align_insn, next_head, prev_head, str2reg};
 use crate::ffi::xref::{idalib_xref_first_from, idalib_xref_first_to};
 
@@ -574,6 +575,38 @@ impl IDB {
 
     pub fn disasm_line(&self, ea: Address) -> Option<String> {
         disasm_line(ea.into())
+    }
+
+    pub fn declare_type(
+        &self,
+        declaration: impl AsRef<str>,
+        relaxed: bool,
+        replace: bool,
+    ) -> Result<(), IDAError> {
+        let decl = CString::new(declaration.as_ref()).map_err(IDAError::ffi)?;
+        if unsafe { idalib_declare_type(decl.as_ptr(), relaxed, replace) } {
+            Ok(())
+        } else {
+            Err(IDAError::ffi_with("failed to declare local type"))
+        }
+    }
+
+    pub fn apply_decl_type(
+        &self,
+        ea: Address,
+        declaration: impl AsRef<str>,
+        relaxed: bool,
+        delay: bool,
+        strict: bool,
+    ) -> Result<(), IDAError> {
+        let decl = CString::new(declaration.as_ref()).map_err(IDAError::ffi)?;
+        if unsafe { idalib_apply_decl_type(ea.into(), decl.as_ptr(), relaxed, delay, strict) } {
+            Ok(())
+        } else {
+            Err(IDAError::ffi_with(format!(
+                "failed to apply type at {ea:#x}"
+            )))
+        }
     }
 
     pub fn find_plugin(
