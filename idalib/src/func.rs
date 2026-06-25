@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::mem;
 use std::pin::Pin;
 use std::ptr;
 
@@ -10,7 +9,10 @@ use cxx::UniquePtr;
 use crate::Address;
 use crate::ffi::func::*;
 use crate::ffi::xref::has_external_refs;
-use crate::ffi::{BADADDR, IDAError, range_t};
+use crate::ffi::{
+    BADADDR, IDAError, idalib_range_contains, idalib_range_end_ea, idalib_range_size,
+    idalib_range_start_ea, range_t,
+};
 use crate::idb::IDB;
 
 pub struct Function<'a> {
@@ -44,19 +46,19 @@ impl<'a> BasicBlock<'a> {
     }
 
     pub fn start_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).start_ea.into() }
+        unsafe { idalib_range_start_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn end_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).end_ea.into() }
+        unsafe { idalib_range_end_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn contains_address(&self, addr: Address) -> bool {
-        unsafe { (*self.as_range_t()).contains(addr.into()) }
+        unsafe { idalib_range_contains(self.as_range_t(), addr.into()) }
     }
 
     pub fn len(&self) -> usize {
-        unsafe { (*self.as_range_t()).size().0 as _ }
+        unsafe { idalib_range_size(self.as_range_t()) }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -127,6 +129,20 @@ impl<'a> BasicBlock<'a> {
 pub type FunctionId = usize;
 pub type BasicBlockId = usize;
 
+fn block_type_from_i32(value: i32) -> Option<fc_block_type_t> {
+    match value {
+        v if v == fc_block_type_t::fcb_normal as i32 => Some(fc_block_type_t::fcb_normal),
+        v if v == fc_block_type_t::fcb_indjump as i32 => Some(fc_block_type_t::fcb_indjump),
+        v if v == fc_block_type_t::fcb_ret as i32 => Some(fc_block_type_t::fcb_ret),
+        v if v == fc_block_type_t::fcb_cndret as i32 => Some(fc_block_type_t::fcb_cndret),
+        v if v == fc_block_type_t::fcb_noret as i32 => Some(fc_block_type_t::fcb_noret),
+        v if v == fc_block_type_t::fcb_enoret as i32 => Some(fc_block_type_t::fcb_enoret),
+        v if v == fc_block_type_t::fcb_extern as i32 => Some(fc_block_type_t::fcb_extern),
+        v if v == fc_block_type_t::fcb_error as i32 => Some(fc_block_type_t::fcb_error),
+        _ => None,
+    }
+}
+
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct FunctionFlags: u64 {
@@ -185,19 +201,19 @@ impl<'a> Function<'a> {
     }
 
     pub fn start_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).start_ea.into() }
+        unsafe { idalib_range_start_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn end_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).end_ea.into() }
+        unsafe { idalib_range_end_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn contains_address(&self, addr: Address) -> bool {
-        unsafe { (*self.as_range_t()).contains(addr.into()) }
+        unsafe { idalib_range_contains(self.as_range_t(), addr.into()) }
     }
 
     pub fn len(&self) -> usize {
-        unsafe { (*self.as_range_t()).size().0 as _ }
+        unsafe { idalib_range_size(self.as_range_t()) }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -270,12 +286,6 @@ impl<'a> Function<'a> {
 }
 
 impl<'a> FunctionCFG<'a> {
-    unsafe fn as_gdl_graph(&self) -> Option<&gdl_graph_t> {
-        self.flow_chart
-            .as_ref()
-            .map(|r| unsafe { mem::transmute::<&qflow_chart_t, &gdl_graph_t>(r) })
-    }
-
     pub fn block_by_id(&self, id: BasicBlockId) -> Option<BasicBlock<'_>> {
         let blk = unsafe {
             idalib_qflow_graph_getn_block(self.flow_chart.as_ref().expect("valid pointer"), id)
@@ -286,37 +296,44 @@ impl<'a> FunctionCFG<'a> {
         }
 
         let kind = unsafe {
-            self.flow_chart
-                .as_ref()
-                .expect("valid pointer")
-                .calc_block_type(id)
+            idalib_qflow_graph_calc_block_type(self.flow_chart.as_ref().expect("valid pointer"), id)
         };
+        let kind = block_type_from_i32(kind.0)?;
 
         Some(BasicBlock::from_parts(blk, kind))
     }
 
     pub fn entry(&self) -> Option<BasicBlock<'_>> {
-        let id = unsafe { self.as_gdl_graph().expect("valid pointer").entry() };
+        let id =
+            unsafe { idalib_qflow_graph_entry(self.flow_chart.as_ref().expect("valid pointer")) };
 
         if id.0 < 0 {
             return None;
         }
 
-        self.block_by_id(id.0 as _)
+        usize::try_from(id.0)
+            .ok()
+            .and_then(|id| self.block_by_id(id))
     }
 
     pub fn exit(&self) -> Option<BasicBlock<'_>> {
-        let id = unsafe { self.as_gdl_graph().expect("valid pointer").exit() };
+        let id =
+            unsafe { idalib_qflow_graph_exit(self.flow_chart.as_ref().expect("valid pointer")) };
 
         if id.0 < 0 {
             return None;
         }
 
-        self.block_by_id(id.0 as _)
+        usize::try_from(id.0)
+            .ok()
+            .and_then(|id| self.block_by_id(id))
     }
 
     pub fn blocks_count(&self) -> usize {
-        unsafe { self.as_gdl_graph().expect("valid pointer").node_qty().0 as _ }
+        let count = unsafe {
+            idalib_qflow_graph_node_qty(self.flow_chart.as_ref().expect("valid pointer"))
+        };
+        usize::try_from(count.0).ok().unwrap_or(0)
     }
 
     pub fn blocks<'b>(&'b self) -> impl ExactSizeIterator<Item = BasicBlock<'b>> + 'b {

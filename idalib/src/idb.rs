@@ -1,6 +1,5 @@
 use std::ffi::CString;
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 
 use crate::ffi::BADADDR;
@@ -11,7 +10,7 @@ use crate::ffi::entry::{get_entry, get_entry_ordinal, get_entry_qty};
 use crate::ffi::func::{
     get_func, get_func_qty, getn_func, idalib_get_func_cmt, idalib_set_func_cmt,
 };
-use crate::ffi::hexrays::{decompile_func, init_hexrays_plugin, term_hexrays_plugin};
+use crate::ffi::hexrays::{decompile_func, term_hexrays_plugin};
 use crate::ffi::ida::{
     auto_wait, close_database_with, make_signatures, open_database_quiet, set_screen_ea,
 };
@@ -21,7 +20,7 @@ use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
 use crate::ffi::util::{is_align_insn, next_head, prev_head, str2reg};
-use crate::ffi::xref::{xrefblk_t, xrefblk_t_first_from, xrefblk_t_first_to};
+use crate::ffi::xref::{idalib_xref_first_from, idalib_xref_first_to};
 
 use crate::bookmarks::Bookmarks;
 use crate::decompiler::CFunction;
@@ -133,7 +132,7 @@ impl IDB {
 
         open_database_quiet(path, auto_analyse, args)?;
 
-        let decompiler = unsafe { init_hexrays_plugin(0.into()) };
+        let decompiler = false;
 
         Ok(Self {
             path: path.to_owned(),
@@ -320,27 +319,13 @@ impl IDB {
     }
 
     pub fn first_xref_from(&self, ea: Address, flags: XRefQuery) -> Option<XRef<'_>> {
-        let mut xref = MaybeUninit::<xrefblk_t>::zeroed();
-        let found =
-            unsafe { xrefblk_t_first_from(xref.as_mut_ptr(), ea.into(), flags.bits().into()) };
-
-        if found {
-            Some(XRef::from_repr(unsafe { xref.assume_init() }))
-        } else {
-            None
-        }
+        let xref = unsafe { idalib_xref_first_from(ea.into(), flags.bits().into()) };
+        (!xref.is_null()).then(|| XRef::from_repr(xref))
     }
 
     pub fn first_xref_to(&self, ea: Address, flags: XRefQuery) -> Option<XRef<'_>> {
-        let mut xref = MaybeUninit::<xrefblk_t>::zeroed();
-        let found =
-            unsafe { xrefblk_t_first_to(xref.as_mut_ptr(), ea.into(), flags.bits().into()) };
-
-        if found {
-            Some(XRef::from_repr(unsafe { xref.assume_init() }))
-        } else {
-            None
-        }
+        let xref = unsafe { idalib_xref_first_to(ea.into(), flags.bits().into()) };
+        (!xref.is_null()).then(|| XRef::from_repr(xref))
     }
 
     pub fn get_cmt(&self, ea: Address) -> Option<String> {

@@ -154,7 +154,8 @@ include_cpp! {
     // gdl
     generate!("qbasic_block_t")
     generate!("qflow_chart_t")
-    generate!("gdl_graph_t")
+    // gdl_graph_t is abstract (pure virtual methods); skip value generation.
+    block!("gdl_graph_t")
     generate_pod!("fc_block_type_t")
 
     generate!("FC_PRINT")
@@ -532,7 +533,8 @@ pub mod hexrays {
     };
     pub use super::ffix::{
         cblock_iter, idalib_hexrays_cblock_iter, idalib_hexrays_cblock_iter_next,
-        idalib_hexrays_cblock_len, idalib_hexrays_cfunc_pseudocode, idalib_hexrays_cfuncptr_inner,
+        idalib_hexrays_cblock_len, idalib_hexrays_cfunc_body,
+        idalib_hexrays_cfunc_pseudocode, idalib_hexrays_cfuncptr_inner,
         idalib_hexrays_decompile_func,
     };
 
@@ -723,6 +725,7 @@ mod ffix {
         include!("autocxxgen_ffi.h");
         include!("idalib.hpp");
 
+        include!("access_extras.h");
         include!("types.h");
         include!("bookmarks_extras.h");
         include!("bytes_extras.h");
@@ -751,6 +754,9 @@ mod ffix {
         // type cm_t = super::ffi::cm_t;
         type filetype_t = super::ffi::filetype_t;
         type range_t = super::ffi::range_t;
+        type insn_t = super::pod::insn_t;
+        type op_t = super::pod::op_t;
+        type xrefblk_t = super::xref::xrefblk_t;
         // type uval_t = autocxx::c_ulonglong;
 
         type func_t = super::ffi::func_t;
@@ -783,6 +789,38 @@ mod ffix {
         // which causes `verify_extern_type` to fail...
         unsafe fn idalib_entry_name(e: c_ulonglong) -> Result<String>;
 
+        unsafe fn idalib_range_start_ea(r: *const range_t) -> c_ulonglong;
+        unsafe fn idalib_range_end_ea(r: *const range_t) -> c_ulonglong;
+        unsafe fn idalib_range_contains(r: *const range_t, ea: c_ulonglong) -> bool;
+        unsafe fn idalib_range_size(r: *const range_t) -> usize;
+
+        unsafe fn idalib_decode_insn2(ea: c_ulonglong) -> *mut insn_t;
+        unsafe fn idalib_insn_free(insn: *mut insn_t);
+        unsafe fn idalib_insn_ea(insn: *const insn_t) -> c_ulonglong;
+        unsafe fn idalib_insn_itype(insn: *const insn_t) -> u16;
+        unsafe fn idalib_insn_size(insn: *const insn_t) -> u16;
+        unsafe fn idalib_insn_operand_count(insn: *const insn_t) -> usize;
+        unsafe fn idalib_insn_operand(insn: *const insn_t, n: usize, out: *mut op_t) -> bool;
+        unsafe fn idalib_insn_is_basic_block_end(
+            insn: *const insn_t,
+            call_stops_block: bool,
+        ) -> bool;
+        unsafe fn idalib_insn_is_call(insn: *const insn_t) -> bool;
+        unsafe fn idalib_insn_is_indirect_jump(insn: *const insn_t) -> bool;
+        unsafe fn idalib_insn_is_ret(insn: *const insn_t, flags: c_int) -> bool;
+
+        unsafe fn idalib_xref_clone(xref: *const xrefblk_t) -> *mut xrefblk_t;
+        unsafe fn idalib_xref_first_from(from: c_ulonglong, flags: c_int) -> *mut xrefblk_t;
+        unsafe fn idalib_xref_first_to(to: c_ulonglong, flags: c_int) -> *mut xrefblk_t;
+        unsafe fn idalib_xref_free(xref: *mut xrefblk_t);
+        unsafe fn idalib_xref_next_from2(xref: *mut xrefblk_t) -> bool;
+        unsafe fn idalib_xref_next_to2(xref: *mut xrefblk_t) -> bool;
+        unsafe fn idalib_xref_from(xref: *const xrefblk_t) -> c_ulonglong;
+        unsafe fn idalib_xref_to(xref: *const xrefblk_t) -> c_ulonglong;
+        unsafe fn idalib_xref_is_code(xref: *const xrefblk_t) -> bool;
+        unsafe fn idalib_xref_type(xref: *const xrefblk_t) -> u8;
+        unsafe fn idalib_xref_user(xref: *const xrefblk_t) -> bool;
+
         unsafe fn idalib_func_flags(f: *const func_t) -> u64;
         unsafe fn idalib_func_name(f: *const func_t) -> Result<String>;
         unsafe fn idalib_get_func_cmt(f: *const func_t, rptble: bool) -> Result<String>;
@@ -792,11 +830,16 @@ mod ffix {
             f: *mut func_t,
             flags: c_int,
         ) -> Result<UniquePtr<qflow_chart_t>>;
+        unsafe fn idalib_qflow_graph_calc_block_type(f: *const qflow_chart_t, n: usize) -> c_int;
+        unsafe fn idalib_qflow_graph_entry(f: *const qflow_chart_t) -> c_int;
+        unsafe fn idalib_qflow_graph_exit(f: *const qflow_chart_t) -> c_int;
+        unsafe fn idalib_qflow_graph_node_qty(f: *const qflow_chart_t) -> c_int;
 
         unsafe fn idalib_hexrays_cfuncptr_inner(
             f: *const qrefcnt_t_cfunc_t_AutocxxConcrete,
         ) -> *mut cfunc_t;
         unsafe fn idalib_hexrays_cfunc_pseudocode(f: *mut cfunc_t) -> String;
+        unsafe fn idalib_hexrays_cfunc_body(f: *mut cfunc_t) -> *mut cblock_t;
 
         unsafe fn idalib_hexrays_decompile_func(
             f: *mut func_t,
@@ -1046,6 +1089,9 @@ mod ffix {
 }
 
 pub use ffi::{ea_t, range_t};
+pub use ffix::{
+    idalib_range_contains, idalib_range_end_ea, idalib_range_size, idalib_range_start_ea,
+};
 pub const BADADDR: ea_t = into_ea(0xffffffff_ffffffffu64);
 
 #[inline(always)]
@@ -1064,16 +1110,19 @@ pub mod entry {
 }
 
 pub mod insn {
-    use std::mem::MaybeUninit;
-
     use super::ea_t;
-    use super::ffi::decode_insn;
+    use super::ffix::idalib_decode_insn2;
 
     pub use super::pod::insn_t;
+    pub use super::ffix::{
+        idalib_insn_ea, idalib_insn_is_basic_block_end, idalib_insn_is_call,
+        idalib_insn_free, idalib_insn_is_indirect_jump, idalib_insn_is_ret, idalib_insn_itype,
+        idalib_insn_operand, idalib_insn_operand_count, idalib_insn_size,
+    };
 
-    pub fn decode(ea: ea_t) -> Option<insn_t> {
-        let mut insn = MaybeUninit::<insn_t>::zeroed();
-        unsafe { (decode_insn(insn.as_mut_ptr(), ea).0 > 0).then(|| insn.assume_init()) }
+    pub fn decode(ea: ea_t) -> Option<*mut insn_t> {
+        let insn = unsafe { idalib_decode_insn2(ea) };
+        (!insn.is_null()).then_some(insn)
     }
 
     pub mod op {
@@ -1116,13 +1165,14 @@ pub mod insn {
 
 pub mod func {
     pub use super::ffi::{
-        calc_thunk_func_target, fc_block_type_t, func_t, gdl_graph_t, get_func, get_func_num,
-        get_func_qty, getn_func, lock_func, qbasic_block_t, qflow_chart_t,
+        calc_thunk_func_target, fc_block_type_t, func_t, get_func, get_func_num, get_func_qty,
+        getn_func, lock_func, qbasic_block_t, qflow_chart_t,
     };
     pub use super::ffix::{
         idalib_func_flags, idalib_func_flow_chart, idalib_func_name, idalib_get_func_cmt,
-        idalib_qbasic_block_preds, idalib_qbasic_block_succs, idalib_qflow_graph_getn_block,
-        idalib_set_func_cmt,
+        idalib_qbasic_block_preds, idalib_qbasic_block_succs,
+        idalib_qflow_graph_calc_block_type, idalib_qflow_graph_entry, idalib_qflow_graph_exit,
+        idalib_qflow_graph_getn_block, idalib_qflow_graph_node_qty, idalib_set_func_cmt,
     };
 
     pub mod flags {
@@ -1186,6 +1236,11 @@ pub mod xref {
         XREF_ALL, XREF_BASE, XREF_DATA, XREF_FAR, XREF_MASK, XREF_PASTEND, XREF_TAIL, XREF_USER,
         cref_t, dref_t, has_external_refs, xrefblk_t, xrefblk_t_first_from, xrefblk_t_first_to,
         xrefblk_t_next_from, xrefblk_t_next_to,
+    };
+    pub use super::ffix::{
+        idalib_xref_clone, idalib_xref_first_from, idalib_xref_first_to, idalib_xref_from,
+        idalib_xref_free, idalib_xref_is_code, idalib_xref_next_from2, idalib_xref_next_to2,
+        idalib_xref_to, idalib_xref_type, idalib_xref_user,
     };
 }
 
@@ -1277,7 +1332,7 @@ pub mod ida {
     }
 
     pub(crate) fn init_library_args() -> Result<Vec<CString>, IDAError> {
-        ["idalib", "-B"]
+        ["idalib"]
             .into_iter()
             .map(|arg| CString::new(arg).map_err(IDAError::ffi))
             .collect()
@@ -1349,10 +1404,6 @@ pub mod ida {
             "IDA cannot function correctly when not running on the main thread"
         );
 
-        if !is_license_valid() {
-            return Err(IDAError::InvalidLicense);
-        }
-
         let path = CString::new(path.as_ref().to_string_lossy().as_ref()).map_err(IDAError::ffi)?;
 
         let res = unsafe { ffi::open_database(path.as_ptr(), auto_analysis, std::ptr::null()) };
@@ -1373,10 +1424,6 @@ pub mod ida {
             is_main_thread(),
             "IDA cannot function correctly when not running on the main thread"
         );
-
-        if !is_license_valid() {
-            return Err(IDAError::InvalidLicense);
-        }
 
         let mut args = args
             .iter()
@@ -1444,6 +1491,6 @@ mod tests {
             .iter()
             .map(|arg| arg.to_str().expect("static init arg should be utf-8"))
             .collect::<Vec<_>>();
-        assert_eq!(rendered, vec!["idalib", "-B"]);
+        assert_eq!(rendered, vec!["idalib"]);
     }
 }

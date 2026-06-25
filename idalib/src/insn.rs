@@ -1,10 +1,15 @@
 use std::mem;
+use std::mem::MaybeUninit;
 
 use bitflags::bitflags;
 
 use crate::ffi::insn::insn_t;
+use crate::ffi::insn::{
+    idalib_insn_ea, idalib_insn_is_basic_block_end, idalib_insn_is_call,
+    idalib_insn_free, idalib_insn_is_indirect_jump, idalib_insn_is_ret, idalib_insn_itype,
+    idalib_insn_operand, idalib_insn_operand_count, idalib_insn_size,
+};
 use crate::ffi::insn::op::*;
-use crate::ffi::util::{is_basic_block_end, is_call_insn, is_indirect_jump_insn, is_ret_insn};
 
 pub use crate::ffi::insn::{arm, mips, x86};
 
@@ -13,10 +18,8 @@ use crate::Address;
 pub type Register = u16;
 pub type Phrase = u16;
 
-#[derive(Clone, Copy)]
-#[repr(transparent)]
 pub struct Insn {
-    inner: insn_t,
+    inner: *mut insn_t,
 }
 
 #[derive(Clone, Copy)]
@@ -91,38 +94,41 @@ bitflags! {
 pub type InsnType = u16;
 
 impl Insn {
-    pub(crate) fn from_repr(inner: insn_t) -> Self {
+    pub(crate) fn from_repr(inner: *mut insn_t) -> Self {
         Self { inner }
     }
 
+    fn ptr(&self) -> *const insn_t {
+        self.inner
+    }
+
     pub fn address(&self) -> Address {
-        self.inner.ea
+        unsafe { idalib_insn_ea(self.ptr()).0 as _ }
     }
 
     pub fn itype(&self) -> InsnType {
-        self.inner.itype as _
+        unsafe { idalib_insn_itype(self.ptr()) as _ }
     }
 
     pub fn operand(&self, n: usize) -> Option<Operand> {
-        let op = self.inner.ops.get(n)?;
+        let mut op = MaybeUninit::zeroed();
+        let found = unsafe { idalib_insn_operand(self.ptr(), n, op.as_mut_ptr()) };
 
-        if op.type_ != o_void {
-            Some(Operand { inner: *op })
+        if found {
+            Some(Operand {
+                inner: unsafe { op.assume_init() },
+            })
         } else {
             None
         }
     }
 
     pub fn operand_count(&self) -> usize {
-        self.inner
-            .ops
-            .iter()
-            .position(|op| op.type_ == o_void)
-            .unwrap_or(self.inner.ops.len())
+        unsafe { idalib_insn_operand_count(self.ptr()) }
     }
 
     pub fn len(&self) -> usize {
-        self.inner.size as _
+        unsafe { idalib_insn_size(self.ptr()) as _ }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -130,15 +136,15 @@ impl Insn {
     }
 
     pub fn is_basic_block_end(&self, call_stops_block: bool) -> bool {
-        unsafe { is_basic_block_end(&self.inner, call_stops_block) }
+        unsafe { idalib_insn_is_basic_block_end(self.ptr(), call_stops_block) }
     }
 
     pub fn is_call(&self) -> bool {
-        unsafe { is_call_insn(&self.inner) }
+        unsafe { idalib_insn_is_call(self.ptr()) }
     }
 
     pub fn is_indirect_jump(&self) -> bool {
-        unsafe { is_indirect_jump_insn(&self.inner) }
+        unsafe { idalib_insn_is_indirect_jump(self.ptr()) }
     }
 
     pub fn is_ret(&self) -> bool {
@@ -146,7 +152,13 @@ impl Insn {
     }
 
     pub fn is_ret_with(&self, iri: IsReturnFlags) -> bool {
-        unsafe { is_ret_insn(&self.inner, iri.bits()) }
+        unsafe { idalib_insn_is_ret(self.ptr(), (iri.bits() as i32).into()) }
+    }
+}
+
+impl Drop for Insn {
+    fn drop(&mut self) {
+        unsafe { idalib_insn_free(self.inner) }
     }
 }
 

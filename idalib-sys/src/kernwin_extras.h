@@ -2,6 +2,9 @@
 
 #include "auto.hpp"
 #include "kernwin.hpp"
+
+#include <cctype>
+#include <string>
 #include "pro.h"
 
 #include <algorithm>
@@ -145,22 +148,44 @@ bool idalib_get_license_id(std::array<uint8_t, 6> &id) {
   return false;
 }
 
-int idalib_open_database_quiet(int argc, const char *const *argv,
-                               bool auto_analysis) {
-  auto new_file = 0;
-  auto result = init_database(argc, argv, &new_file);
-
-  if (result != 0) {
-    return result;
+static std::string idalib_quote_arg(const char *arg) {
+  std::string value(arg);
+  bool needs_quotes = value.empty();
+  for (char ch : value) {
+    if (std::isspace(static_cast<unsigned char>(ch))) {
+      needs_quotes = true;
+      break;
+    }
+  }
+  if (!needs_quotes) {
+    return value;
   }
 
-  (*callui)(ui_notification_t::ui_ready_to_run);
+  std::string out = "\"";
+  for (char ch : value) {
+    if (ch == '\\' || ch == '"') {
+      out.push_back('\\');
+    }
+    out.push_back(ch);
+  }
+  out.push_back('"');
+  return out;
+}
 
-  if (auto_analysis) {
-    result = !auto_wait();
+int idalib_open_database_quiet(int argc, const char *const *argv, bool auto_analysis) {
+  if (argc < 2) {
+    return 2;
   }
 
-  return result;
+  std::string args;
+  for (int i = 1; i < argc - 1; ++i) {
+    if (!args.empty()) {
+      args.push_back(' ');
+    }
+    args += idalib_quote_arg(argv[i]);
+  }
+
+  return open_database(argv[argc - 1], auto_analysis, args.empty() ? nullptr : args.c_str());
 }
 
 rust::String idalib_ea2str(ea_t ea) {

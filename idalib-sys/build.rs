@@ -6,6 +6,7 @@ use autocxx_bindgen::Builder as BindgenBuilder;
 fn configure_and_generate(builder: BindgenBuilder, ida: &Path, output: impl AsRef<Path>) {
     let rs = PathBuf::from(env::var("OUT_DIR").unwrap()).join(output.as_ref());
     let bindings = builder
+        .rust_target(autocxx_bindgen::RustTarget::stable(82, 0).expect("valid rust target"))
         .clang_arg("-xc++")
         .clang_arg(format!("-I{}", ida.display()))
         .clang_args(
@@ -76,10 +77,16 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     {
+        builder.file(ffi_path.join("compare_shims.cc"));
+        // MSVC may report duplicate cxx/autocxx wrapper symbols. Keep the
+        // first definition and continue so real unresolved symbols still fail.
+        println!("cargo::rustc-link-arg=/FORCE:MULTIPLE");
         builder
             .cargo_warnings(false)
+            .warnings(false)
             .cpp(true)
             .std("c++17")
+            .flag("/w")
             .define("__NT__", "1")
             .define("__EA64__", "1")
             .compile("libida-stubs");
@@ -91,7 +98,8 @@ fn main() {
         .allowlist_type("insn_t")
         .allowlist_type("op_t")
         .allowlist_type("optype_t")
-        .allowlist_item("OF_.*");
+        .allowlist_item("OF_.*")
+        .layout_tests(false);
 
     configure_and_generate(pod, &ida, "pod.rs");
 
@@ -171,7 +179,8 @@ fn main() {
         .allowlist_item("lvar_locator_t")
         .allowlist_item("vdloc_t")
         .allowlist_item("CV_.*")
-        .allowlist_item("DECOMP_.*");
+        .allowlist_item("DECOMP_.*")
+        .layout_tests(false);
 
     configure_and_generate(hexrays, &ida, "hexrays.rs");
 

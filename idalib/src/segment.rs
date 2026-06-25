@@ -5,7 +5,9 @@ use std::pin::Pin;
 use autocxx::moveit::Emplace;
 use bitflags::bitflags;
 
-use crate::ffi::range_t;
+use crate::ffi::{
+    idalib_range_contains, idalib_range_end_ea, idalib_range_size, idalib_range_start_ea, range_t,
+};
 use crate::ffi::segment::*;
 use crate::idb::IDB;
 use crate::Address;
@@ -225,15 +227,15 @@ impl<'a> Segment<'a> {
     }
 
     pub fn start_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).start_ea.into() }
+        unsafe { idalib_range_start_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn end_address(&self) -> Address {
-        unsafe { (*self.as_range_t()).end_ea.into() }
+        unsafe { idalib_range_end_ea(self.as_range_t()).0 as _ }
     }
 
     pub fn len(&self) -> usize {
-        unsafe { (*self.as_range_t()).size().0 as _ }
+        unsafe { idalib_range_size(self.as_range_t()) }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -241,7 +243,7 @@ impl<'a> Segment<'a> {
     }
 
     pub fn contains_address(&self, addr: Address) -> bool {
-        unsafe { (*self.as_range_t()).contains(addr.into()) }
+        unsafe { idalib_range_contains(self.as_range_t(), addr.into()) }
     }
 
     pub fn name(&self) -> Option<String> {

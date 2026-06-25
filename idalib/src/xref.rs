@@ -11,23 +11,22 @@ use crate::idb::IDB;
 use crate::Address;
 
 pub struct XRef<'a> {
-    inner: xrefblk_t,
+    inner: *mut xrefblk_t,
     _marker: PhantomData<&'a IDB>,
 }
 
 impl<'a> Clone for XRef<'a> {
     fn clone(&self) -> Self {
         Self {
-            inner: xrefblk_t {
-                from: self.inner.from,
-                to: self.inner.to,
-                iscode: self.inner.iscode,
-                type_: self.inner.type_,
-                user: self.inner.user,
-                _flags: self.inner._flags,
-            },
+            inner: unsafe { idalib_xref_clone(self.inner) },
             _marker: PhantomData,
         }
+    }
+}
+
+impl<'a> Drop for XRef<'a> {
+    fn drop(&mut self) {
+        unsafe { idalib_xref_free(self.inner) }
     }
 }
 
@@ -80,7 +79,7 @@ bitflags! {
 }
 
 impl<'a> XRef<'a> {
-    pub(crate) fn from_repr(inner: xrefblk_t) -> Self {
+    pub(crate) fn from_repr(inner: *mut xrefblk_t) -> Self {
         Self {
             inner,
             _marker: PhantomData,
@@ -88,20 +87,20 @@ impl<'a> XRef<'a> {
     }
 
     pub fn from(&self) -> Address {
-        self.inner.from.into()
+        unsafe { idalib_xref_from(self.inner).0 as _ }
     }
 
     pub fn to(&self) -> Address {
-        self.inner.to.into()
+        unsafe { idalib_xref_to(self.inner).0 as _ }
     }
 
     pub fn flags(&self) -> XRefFlags {
-        let flags = self.inner.type_ & !(XREF_MASK as u8);
+        let flags = unsafe { idalib_xref_type(self.inner) } & !(XREF_MASK as u8);
         XRefFlags::from_bits_retain(flags)
     }
 
     pub fn type_(&self) -> XRefType {
-        let type_ = self.inner.type_ & (XREF_MASK as u8);
+        let type_ = unsafe { idalib_xref_type(self.inner) } & (XREF_MASK as u8);
 
         if self.is_code() {
             XRefType::Code(unsafe { mem::transmute::<u8, CodeRef>(type_) })
@@ -111,7 +110,7 @@ impl<'a> XRef<'a> {
     }
 
     pub fn is_code(&self) -> bool {
-        self.inner.iscode
+        unsafe { idalib_xref_is_code(self.inner) }
     }
 
     pub fn is_data(&self) -> bool {
@@ -119,13 +118,13 @@ impl<'a> XRef<'a> {
     }
 
     pub fn is_user_defined(&self) -> bool {
-        self.inner.user
+        unsafe { idalib_xref_user(self.inner) }
     }
 
     pub fn next_to(&self) -> Option<Self> {
-        let mut curr = self.clone();
+        let curr = self.clone();
 
-        let found = unsafe { xrefblk_t_next_to(&mut curr.inner as *mut _) };
+        let found = unsafe { idalib_xref_next_to2(curr.inner) };
 
         if found {
             Some(curr)
@@ -135,9 +134,9 @@ impl<'a> XRef<'a> {
     }
 
     pub fn next_from(&self) -> Option<Self> {
-        let mut curr = self.clone();
+        let curr = self.clone();
 
-        let found = unsafe { xrefblk_t_next_from(&mut curr.inner as *mut _) };
+        let found = unsafe { idalib_xref_next_from2(curr.inner) };
 
         if found {
             Some(curr)
