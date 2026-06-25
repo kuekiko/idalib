@@ -10,7 +10,7 @@ use crate::ffi::entry::{get_entry, get_entry_ordinal, get_entry_qty};
 use crate::ffi::func::{
     get_func, get_func_qty, getn_func, idalib_get_func_cmt, idalib_set_func_cmt,
 };
-use crate::ffi::hexrays::{decompile_func, term_hexrays_plugin};
+use crate::ffi::hexrays::{decompile_func, init_hexrays_plugin, term_hexrays_plugin};
 use crate::ffi::ida::{
     auto_wait, close_database_with, make_signatures, open_database_quiet, set_screen_ea,
 };
@@ -48,6 +48,7 @@ pub struct IDB {
 pub struct IDBOpenOptions {
     idb: Option<PathBuf>,
     ftype: Option<String>,
+    args: Vec<String>,
 
     save: bool,
     auto_analyse: bool,
@@ -58,6 +59,7 @@ impl Default for IDBOpenOptions {
         Self {
             idb: None,
             ftype: None,
+            args: Vec::new(),
             save: false,
             auto_analyse: true,
         }
@@ -89,12 +91,19 @@ impl IDBOpenOptions {
         self
     }
 
+    pub fn arg(&mut self, arg: impl AsRef<str>) -> &mut Self {
+        self.args.push(arg.as_ref().to_owned());
+        self
+    }
+
     pub fn open(&self, path: impl AsRef<Path>) -> Result<IDB, IDAError> {
         let mut args = Vec::new();
 
         if let Some(ftype) = self.ftype.as_ref() {
             args.push(format!("-T{ftype}"));
         }
+
+        args.extend(self.args.iter().cloned());
 
         if let Some(idb_path) = self.idb.as_ref() {
             args.push("-c".to_owned());
@@ -133,7 +142,7 @@ impl IDB {
 
         open_database_quiet(path, auto_analyse, args)?;
 
-        let decompiler = false;
+        let decompiler = unsafe { init_hexrays_plugin(0.into()) };
 
         Ok(Self {
             path: path.to_owned(),
