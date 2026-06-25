@@ -14,8 +14,9 @@ use crate::ffi::hexrays::{decompile_func, term_hexrays_plugin};
 use crate::ffi::ida::{
     auto_wait, close_database_with, make_signatures, open_database_quiet, set_screen_ea,
 };
-use crate::ffi::insn::decode;
+use crate::ffi::insn::{decode, disasm_line};
 use crate::ffi::loader::find_plugin;
+use crate::ffi::name::idalib_set_name;
 use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
@@ -541,6 +542,29 @@ impl IDB {
         }
 
         buf
+    }
+
+    pub fn patch_bytes(&self, ea: Address, bytes: &[u8]) -> Result<(), IDAError> {
+        if unsafe { idalib_patch_bytes(ea.into(), bytes) } {
+            Ok(())
+        } else {
+            Err(IDAError::ffi_with(format!(
+                "failed to patch bytes at {ea:#x}"
+            )))
+        }
+    }
+
+    pub fn set_name(&self, ea: Address, name: impl AsRef<str>) -> Result<(), IDAError> {
+        let s = CString::new(name.as_ref()).map_err(IDAError::ffi)?;
+        if unsafe { idalib_set_name(ea.into(), s.as_ptr()) } {
+            Ok(())
+        } else {
+            Err(IDAError::ffi_with(format!("failed to set name at {ea:#x}")))
+        }
+    }
+
+    pub fn disasm_line(&self, ea: Address) -> Option<String> {
+        disasm_line(ea.into())
     }
 
     pub fn find_plugin(

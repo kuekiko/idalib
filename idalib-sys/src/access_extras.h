@@ -1,4 +1,6 @@
 #include <memory>
+#include <lines.hpp>
+#include <name.hpp>
 #include <range.hpp>
 #include <ua.hpp>
 #include <xref.hpp>
@@ -47,6 +49,17 @@ bool idalib_insn_is_basic_block_end(const insn_t *insn, bool call_stops_block) {
 bool idalib_insn_is_call(const insn_t *insn) { return is_call_insn(*insn); }
 bool idalib_insn_is_indirect_jump(const insn_t *insn) { return is_indirect_jump_insn(*insn); }
 bool idalib_insn_is_ret(const insn_t *insn, int flags) { return is_ret_insn(*insn, flags); }
+
+rust::String idalib_generate_disasm_line(ea_t ea) {
+  qstring out;
+  if ( generate_disasm_line(&out, ea, GENDSM_REMOVE_TAGS) )
+    return rust::String(out.c_str());
+  return rust::String();
+}
+
+bool idalib_set_name(ea_t ea, const char *name) {
+  return set_name(ea, name, SN_NOCHECK | SN_NOWARN | SN_FORCE);
+}
 
 xrefblk_t *idalib_xref_clone(const xrefblk_t *xref) { return new xrefblk_t(*xref); }
 

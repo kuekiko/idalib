@@ -808,6 +808,8 @@ mod ffix {
         unsafe fn idalib_insn_is_call(insn: *const insn_t) -> bool;
         unsafe fn idalib_insn_is_indirect_jump(insn: *const insn_t) -> bool;
         unsafe fn idalib_insn_is_ret(insn: *const insn_t, flags: c_int) -> bool;
+        unsafe fn idalib_generate_disasm_line(ea: c_ulonglong) -> String;
+        unsafe fn idalib_set_name(ea: c_ulonglong, name: *const c_char) -> bool;
 
         unsafe fn idalib_xref_clone(xref: *const xrefblk_t) -> *mut xrefblk_t;
         unsafe fn idalib_xref_first_from(from: c_ulonglong, flags: c_int) -> *mut xrefblk_t;
@@ -1074,6 +1076,7 @@ mod ffix {
         unsafe fn idalib_get_dword(ea: c_ulonglong) -> u32;
         unsafe fn idalib_get_qword(ea: c_ulonglong) -> u64;
         unsafe fn idalib_get_bytes(ea: c_ulonglong, buf: &mut Vec<u8>) -> Result<usize>;
+        unsafe fn idalib_patch_bytes(ea: c_ulonglong, buf: &[u8]) -> bool;
 
         unsafe fn idalib_get_input_file_path() -> String;
 
@@ -1111,7 +1114,7 @@ pub mod entry {
 
 pub mod insn {
     use super::ea_t;
-    use super::ffix::idalib_decode_insn2;
+    use super::ffix::{idalib_decode_insn2, idalib_generate_disasm_line};
 
     pub use super::pod::insn_t;
     pub use super::ffix::{
@@ -1123,6 +1126,11 @@ pub mod insn {
     pub fn decode(ea: ea_t) -> Option<*mut insn_t> {
         let insn = unsafe { idalib_decode_insn2(ea) };
         (!insn.is_null()).then_some(insn)
+    }
+
+    pub fn disasm_line(ea: ea_t) -> Option<String> {
+        let line = unsafe { idalib_generate_disasm_line(ea) };
+        (!line.is_empty()).then_some(line)
     }
 
     pub mod op {
@@ -1221,6 +1229,7 @@ pub mod bytes {
     pub use super::ffi::{flags64_t, get_flags, is_code, is_data};
     pub use super::ffix::{
         idalib_get_byte, idalib_get_bytes, idalib_get_dword, idalib_get_qword, idalib_get_word,
+        idalib_patch_bytes,
     };
 }
 
@@ -1293,6 +1302,7 @@ pub mod name {
         get_nlist_ea, get_nlist_idx, get_nlist_name, get_nlist_size, is_in_nlist, is_public_name,
         is_weak_name,
     };
+    pub use super::ffix::idalib_set_name;
 }
 
 pub mod ida {

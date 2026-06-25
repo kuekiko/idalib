@@ -17,3 +17,8 @@ std::size_t idalib_get_bytes(ea_t ea, rust::Vec<rust::u8> &buf) {
     return 0;
   }
 }
+
+bool idalib_patch_bytes(ea_t ea, rust::Slice<const rust::u8> buf) {
+  patch_bytes(ea, buf.data(), buf.size());
+  return true;
+}
