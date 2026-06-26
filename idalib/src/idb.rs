@@ -20,7 +20,16 @@ use crate::ffi::name::idalib_set_name;
 use crate::ffi::processor::get_ph;
 use crate::ffi::search::{idalib_find_defined, idalib_find_imm, idalib_find_text};
 use crate::ffi::segment::{get_segm_by_name, get_segm_qty, getnseg, getseg};
-use crate::ffi::typeinf::{idalib_apply_decl_type, idalib_declare_type};
+use crate::ffi::typeinf::{
+    idalib_apply_decl_type, idalib_declare_type, idalib_local_type_decl,
+    idalib_local_type_is_enum, idalib_local_type_is_func, idalib_local_type_is_ptr,
+    idalib_local_type_is_udt, idalib_local_type_is_union, idalib_local_type_name,
+    idalib_local_type_ordinal_limit, idalib_local_type_size, idalib_named_type_decl,
+    idalib_named_type_is_udt, idalib_named_type_is_union, idalib_named_type_member_count,
+    idalib_named_type_member_name, idalib_named_type_member_offset,
+    idalib_named_type_member_size, idalib_named_type_member_type, idalib_named_type_size,
+    idalib_print_type_at,
+};
 use crate::ffi::util::{is_align_insn, next_head, prev_head, str2reg};
 use crate::ffi::xref::{idalib_xref_first_from, idalib_xref_first_to};
 
@@ -53,6 +62,36 @@ pub struct IDBOpenOptions {
 
     save: bool,
     auto_analyse: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalType {
+    pub ordinal: u32,
+    pub name: String,
+    pub declaration: String,
+    pub size: u64,
+    pub is_udt: bool,
+    pub is_union: bool,
+    pub is_enum: bool,
+    pub is_func: bool,
+    pub is_ptr: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructMember {
+    pub name: String,
+    pub offset: u64,
+    pub size: u64,
+    pub type_declaration: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructDefinition {
+    pub name: String,
+    pub declaration: String,
+    pub size: u64,
+    pub is_union: bool,
+    pub members: Vec<StructMember>,
 }
 
 impl Default for IDBOpenOptions {
@@ -160,6 +199,21 @@ impl IDB {
 
     pub fn save_on_close(&mut self, status: bool) {
         self.save = status;
+    }
+
+    pub fn save_database(&self, path: Option<&Path>, flags: u32) -> Result<(), IDAError> {
+        let path = match path {
+            Some(path) => Some(CString::new(path.to_string_lossy().as_bytes()).map_err(IDAError::ffi)?),
+            None => None,
+        };
+        let ptr = path
+            .as_ref()
+            .map_or(std::ptr::null(), |path| path.as_ptr());
+        if unsafe { crate::ffi::loader::idalib_save_database(ptr, flags) } {
+            Ok(())
+        } else {
+            Err(IDAError::ffi_with("failed to save database"))
+        }
     }
 
     pub fn auto_wait(&mut self) -> bool {
@@ -607,6 +661,66 @@ impl IDB {
                 "failed to apply type at {ea:#x}"
             )))
         }
+    }
+
+    pub fn local_types(&self) -> Vec<LocalType> {
+        let limit = unsafe { idalib_local_type_ordinal_limit() };
+        let mut items = Vec::new();
+        for ordinal in 1..limit {
+            let Ok(ordinal) = u32::try_from(ordinal) else {
+                break;
+            };
+            let name = unsafe { idalib_local_type_name(ordinal) };
+            if name.is_empty() {
+                continue;
+            }
+            items.push(LocalType {
+                ordinal,
+                name,
+                declaration: unsafe { idalib_local_type_decl(ordinal) },
+                size: unsafe { idalib_local_type_size(ordinal) },
+                is_udt: unsafe { idalib_local_type_is_udt(ordinal) },
+                is_union: unsafe { idalib_local_type_is_union(ordinal) },
+                is_enum: unsafe { idalib_local_type_is_enum(ordinal) },
+                is_func: unsafe { idalib_local_type_is_func(ordinal) },
+                is_ptr: unsafe { idalib_local_type_is_ptr(ordinal) },
+            });
+        }
+        items
+    }
+
+    pub fn struct_definition(&self, name: impl AsRef<str>) -> Result<StructDefinition, IDAError> {
+        let name = name.as_ref();
+        let name_c = CString::new(name).map_err(IDAError::ffi)?;
+        let declaration = unsafe { idalib_named_type_decl(name_c.as_ptr()) };
+        if declaration.is_empty() {
+            return Err(IDAError::ffi_with(format!("type not found: {name}")));
+        }
+        if !unsafe { idalib_named_type_is_udt(name_c.as_ptr()) } {
+            return Err(IDAError::ffi_with(format!("{name} is not a structure or union")));
+        }
+        let count = unsafe { idalib_named_type_member_count(name_c.as_ptr()) };
+        let mut members = Vec::with_capacity(count);
+        for index in 0..count {
+            members.push(StructMember {
+                name: unsafe { idalib_named_type_member_name(name_c.as_ptr(), index) },
+                offset: unsafe { idalib_named_type_member_offset(name_c.as_ptr(), index) },
+                size: unsafe { idalib_named_type_member_size(name_c.as_ptr(), index) },
+                type_declaration: unsafe { idalib_named_type_member_type(name_c.as_ptr(), index) },
+            });
+        }
+        Ok(StructDefinition {
+            name: name.to_string(),
+            declaration,
+            size: unsafe { idalib_named_type_size(name_c.as_ptr()) },
+            is_union: unsafe { idalib_named_type_is_union(name_c.as_ptr()) },
+            members,
+        })
+    }
+
+    pub fn type_at(&self, ea: Address) -> Option<String> {
+        let value = unsafe { idalib_print_type_at(ea.into()) };
+        (!value.is_empty()).then_some(value)
     }
 
     pub fn find_plugin(

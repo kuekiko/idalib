@@ -1083,6 +1083,7 @@ mod ffix {
 
         unsafe fn idalib_plugin_version(p: *const plugin_t) -> u64;
         unsafe fn idalib_plugin_flags(p: *const plugin_t) -> u64;
+        unsafe fn idalib_save_database(outfile: *const c_char, flags: u32) -> bool;
 
         unsafe fn idalib_get_library_version(
             major: *mut c_int,
@@ -1098,6 +1099,25 @@ mod ffix {
             delay: bool,
             strict: bool,
         ) -> bool;
+        unsafe fn idalib_local_type_ordinal_limit() -> usize;
+        unsafe fn idalib_local_type_name(ordinal: u32) -> String;
+        unsafe fn idalib_local_type_decl(ordinal: u32) -> String;
+        unsafe fn idalib_local_type_size(ordinal: u32) -> u64;
+        unsafe fn idalib_local_type_is_udt(ordinal: u32) -> bool;
+        unsafe fn idalib_local_type_is_union(ordinal: u32) -> bool;
+        unsafe fn idalib_local_type_is_enum(ordinal: u32) -> bool;
+        unsafe fn idalib_local_type_is_func(ordinal: u32) -> bool;
+        unsafe fn idalib_local_type_is_ptr(ordinal: u32) -> bool;
+        unsafe fn idalib_named_type_decl(name: *const c_char) -> String;
+        unsafe fn idalib_named_type_size(name: *const c_char) -> u64;
+        unsafe fn idalib_named_type_is_udt(name: *const c_char) -> bool;
+        unsafe fn idalib_named_type_is_union(name: *const c_char) -> bool;
+        unsafe fn idalib_named_type_member_count(name: *const c_char) -> usize;
+        unsafe fn idalib_named_type_member_name(name: *const c_char, index: usize) -> String;
+        unsafe fn idalib_named_type_member_type(name: *const c_char, index: usize) -> String;
+        unsafe fn idalib_named_type_member_offset(name: *const c_char, index: usize) -> u64;
+        unsafe fn idalib_named_type_member_size(name: *const c_char, index: usize) -> u64;
+        unsafe fn idalib_print_type_at(ea: c_ulonglong) -> String;
     }
 }
 
@@ -1290,7 +1310,7 @@ pub mod strings {
 
 pub mod loader {
     pub use super::ffi::{find_plugin, plugin_t, run_plugin};
-    pub use super::ffix::{idalib_plugin_flags, idalib_plugin_version};
+    pub use super::ffix::{idalib_plugin_flags, idalib_plugin_version, idalib_save_database};
 
     pub mod flags {
         pub use super::super::ffi::{
@@ -1316,7 +1336,16 @@ pub mod name {
 }
 
 pub mod typeinf {
-    pub use super::ffix::{idalib_apply_decl_type, idalib_declare_type};
+    pub use super::ffix::{
+        idalib_apply_decl_type, idalib_declare_type, idalib_local_type_decl,
+        idalib_local_type_is_enum, idalib_local_type_is_func, idalib_local_type_is_ptr,
+        idalib_local_type_is_udt, idalib_local_type_is_union, idalib_local_type_name,
+        idalib_local_type_ordinal_limit, idalib_local_type_size, idalib_named_type_decl,
+        idalib_named_type_is_udt, idalib_named_type_is_union, idalib_named_type_member_count,
+        idalib_named_type_member_name, idalib_named_type_member_offset,
+        idalib_named_type_member_size, idalib_named_type_member_type, idalib_named_type_size,
+        idalib_print_type_at,
+    };
 }
 
 pub mod ida {
